@@ -1,0 +1,9 @@
+# Copyright (c) 2019 Linaro Limited
+# Copyright (c) 2020 Pavlo Hamov <pasha.gamov@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+
+config SHIELD_ILI9340_ADAFRUIT_2_8_TFTV2
+	def_bool $(shields_list_contains,ili9340_adafruit_2_8_tftv2)
+
+config SHIELD_ILI9340_SEEED_2_8_TFTV2
+	def_bool $(shields_list_contains,ili9340_seeed_2_8_tftv2)

@@ -1,7 +1,8 @@
 # Copyright (c) 2019 Linaro Limited
+# Copyright (c) 2020 Pavlo Hamov <pasha.gamov@gmail.com>
 # SPDX-License-Identifier: Apache-2.0
 
-if SHIELD_ADAFRUIT_2_8_TFT_TOUCH_V2
+if SHIELD_ILI9340_ADAFRUIT_2_8_TFTV2 || SHIELD_ILI9340_SEEED_2_8_TFTV2
 
 if DISPLAY
 
@@ -23,7 +24,7 @@ config LVGL_VER_RES
 	default 240
 
 config LVGL_VDB_SIZE
-	default 64
+	default 10
 
 config LVGL_BITS_PER_PIXEL
 	default 24
@@ -32,4 +33,4 @@ endif # LVGL
 
 endif # DISPLAY
 
-endif # SHIELD_ADAFRUIT_2_8_TFT_TOUCH_V2
+endif # SHIELD_ILI9340_ADAFRUIT_2_8_TFTV2 || SHIELD_ILI9340_SEEED_2_8_TFTV2

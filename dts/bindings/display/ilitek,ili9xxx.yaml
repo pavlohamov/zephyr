@@ -1,0 +1,151 @@
+# Copyright (c) 2018, Jan Van Winkel <jan.van_winkel@dxplore.eu>
+# Copyright (c) 2020, Pavlo Hamov <pasha.gamov@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+
+description: ILI9xxx display controller
+
+compatible: "ilitek,ili9xxx"
+
+include: spi-device.yaml
+
+properties:
+    type:
+      type: string
+      required: true
+      description: controller type
+      enum:
+        - "ili9163"
+        - "ili9340"
+        - "ili9341"
+
+    reset-gpios:
+      type: phandle-array
+      required: false
+      description: RESET pin.
+
+        The RESET pin of ILI9340 is active low.
+        If connected directly the MCU pin should be configured
+        as active low.
+
+    cmd-data-gpios:
+      type: phandle-array
+      required: true
+      description: D/CX pin.
+
+        The D/CX pin of ILI9340 is active low (transmission command byte).
+        If connected directly the MCU pin should be configured
+        as active low.
+
+    pixel-format:
+      type: string
+      required: false
+      description: pixel data format
+      enum:
+        - "RGB565"
+        - "RGB888"
+      default: "RGB565"
+
+    height:
+      type: int
+      required: true
+      description: Height in pixels of the panel driven by the controller
+
+    width:
+      type: int
+      required: true
+      description: Width in pixels of the panel driven by the controller
+
+    x-offset:
+      type: int
+      required: false
+      description: The column offset in pixels of the LCD to the controller memory
+
+    y-offset:
+      type: int
+      required: false
+      description: The row offset in pixels of the LCD to the controller memory
+
+    power-ctrl-1:
+      type: uint8-array
+      required: false
+      description: power control 1
+
+    power-ctrl-2:
+      type: uint8-array
+      required: false
+      description: power control 2
+
+    power-ctrl-a:
+      type: uint8-array
+      required: false
+      description: Power control A
+
+    power-ctrl-b:
+      type: uint8-array
+      required: false
+      description: Power control B
+
+    vcom-ctrl-1:
+      type: uint8-array
+      required: false
+      description: vcom control 1
+
+    vcom-ctrl-2:
+      type: uint8-array
+      required: false
+      description: vcom control 2
+
+    power-on-seq-ctrl:
+      type: uint8-array
+      required: false
+      description: PowerOn sequence control
+
+    drvr-timing-ctrl-a-i:
+      type: uint8-array
+      required: false
+      description: Driver timing
+
+    drvr-timing-ctrl-b:
+      type: uint8-array
+      required: false
+      description: Driver timing
+
+    pump-ratio-ctrl:
+      type: uint8-array
+      required: false
+      description: Pump ratio control
+
+    mem-access-ctrl:
+      type: uint8-array
+      required: false
+      description: Memory Access Data Control
+
+    frame-ctrl-normal-mode:
+      type: uint8-array
+      required: false
+      description: Frame Rate
+
+    display-function-ctrl:
+      type: uint8-array
+      required: false
+      description: Display Function Control
+
+    enable-3g:
+      type: uint8-array
+      required: false
+      description: 3Gamma Function
+
+    gamma-set:
+      type: uint8-array
+      required: false
+      description: Gamma curve selected
+
+    positive-gamma-correction:
+      type: uint8-array
+      required: false
+      description: Positive Gamma Correction
+
+    negative-gamma-correction:
+      type: uint8-array
+      required: false
+      description: Negative Gamma Correction

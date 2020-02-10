@@ -1,0 +1,37 @@
+/*
+ * Copyright (c) 2019 PHYTEC Messtechnik GmbH
+ * Copyright (c) 2020 Pavlo Hamov <pasha.gamov@gmail.com>
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+&arduino_spi {
+	status = "okay";
+	cs-gpios = <&arduino_header 16 0>;			/* D10 */
+
+
+	ili9340@0 {
+		compatible = "ilitek,ili9340";
+		label = "ILI9340";
+		spi-max-frequency = <15151515>;
+		reg = <0>;
+		cmd-data-gpios = <&arduino_header 15 GPIO_ACTIVE_LOW>;	/* D9 */
+		type = "ili9340";
+		height = <320>;
+		width = <240>;
+		x-offset = <0>;
+		y-offset = <0>;
+		pixel-format = "RGB888";
+
+	    power-ctrl-1 = [23];
+	    power-ctrl-2 = [10];
+	    vcom-ctrl-1 = [3E 28];
+	    vcom-ctrl-2 = [86];
+	    mem-access-ctrl = [28];
+	    frame-ctrl-normal-mode = [00 18];
+	    display-function-ctrl = [08 82 27];
+	    gamma-set = [01];
+	    positive-gamma-correction = [0F 31 2B 0C 0E 08 4E F1 37 07 10 03 0E 09 00];
+	    negative-gamma-correction = [00 0E 14 03 11 07 31 C1 48 08 0F 0C 31 36 0F];
+	};
+};
