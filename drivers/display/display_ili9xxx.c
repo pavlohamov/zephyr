@@ -15,9 +15,10 @@ LOG_MODULE_REGISTER(display_ili9xxx, CONFIG_DISPLAY_LOG_LEVEL);
 #include <sys/byteorder.h>
 #include <drivers/spi.h>
 #include <string.h>
+#include <stdlib.h>
 
-#define ILI9XXX_X_MAX 320U
-#define ILI9XXX_Y_MAX 240U
+#define ILI9XXX_X_MAX 240U
+#define ILI9XXX_Y_MAX 320U
 #define ILI9XXX_PIX_FMT_MASK \
 	(PIXEL_FORMAT_RGB_888 | PIXEL_FORMAT_RGB_565 | PIXEL_FORMAT_BGR_565)
 
@@ -134,20 +135,46 @@ static void ili9xxx_exit_sleep(struct ili9xxx_data *data)
 	k_sleep(K_MSEC(120));
 }
 
-static void ili9xxx_set_mem_area(struct ili9xxx_data *data, const u16_t x,
+static int ili9xxx_set_mem_area(struct ili9xxx_data *data, const u16_t x,
 				 const u16_t y, const u16_t w, const u16_t h)
 {
-	const u16_t real_x = x + data->x_offset;
-	const u16_t real_y = y + data->y_offset;
+	u16_t sx;
+	u16_t sy;
 	u16_t spi_data[2];
+	int rv;
 
-	spi_data[0] = sys_cpu_to_be16(real_x);
-	spi_data[1] = sys_cpu_to_be16(real_x + w - 1);
-	ili9xxx_transmit(data, ILI9XXX_CMD_COLUMN_ADDR, &spi_data[0], 4);
+	switch (data->orientation) {
+	case DISPLAY_ORIENTATION_NORMAL:
+		sx = x + data->x_offset;
+		sy = y + data->y_offset;
+		break;
+	case DISPLAY_ORIENTATION_ROTATED_90:
+		sx = ILI9XXX_Y_MAX - (data->width + data->y_offset) + x;
+		sy = y + data->x_offset;
+		break;
+	case DISPLAY_ORIENTATION_ROTATED_180:
+		sx = ILI9XXX_X_MAX - (data->width + data->x_offset) + x;
+		sy = ILI9XXX_Y_MAX - (data->height + data->y_offset) + y;
+		break;
+	case DISPLAY_ORIENTATION_ROTATED_270:
+		sx = x + data->y_offset;
+		sy = ILI9XXX_X_MAX - (data->height + data->x_offset) + y;
+		break;
+	default:
+		return -EINVAL;
+	}
 
-	spi_data[0] = sys_cpu_to_be16(real_y);
-	spi_data[1] = sys_cpu_to_be16(real_y + h - 1);
-	ili9xxx_transmit(data, ILI9XXX_CMD_PAGE_ADDR, &spi_data[0], 4);
+	LOG_DBG("Area %d-%d (x) %d-%d (y)", sx, sx + w - 1,
+			sy, sy + h - 1);
+	spi_data[0] = sys_cpu_to_be16(sx);
+	spi_data[1] = sys_cpu_to_be16(sx + w - 1);
+	rv = ili9xxx_transmit(data, ILI9XXX_CMD_COLUMN_ADDR, &spi_data[0], 4);
+	if (rv)
+		return rv;
+
+	spi_data[0] = sys_cpu_to_be16(sy);
+	spi_data[1] = sys_cpu_to_be16(sy + h - 1);
+	return ili9xxx_transmit(data, ILI9XXX_CMD_PAGE_ADDR, &spi_data[0], 4);
 }
 
 static int ili9xxx_write(const struct device *dev, const u16_t x,
@@ -163,6 +190,7 @@ static int ili9xxx_write(const struct device *dev, const u16_t x,
 	u16_t nbr_of_writes;
 	u16_t write_h;
 	const u8_t pix_size = 2 + (data->pixel_format == PIXEL_FORMAT_RGB_888);
+	int rv;
 
 	__ASSERT(desc->width <= desc->pitch, "Pitch is smaller then width");
 	__ASSERT((desc->pitch * pix_size * desc->height) <= desc->bu_size,
@@ -170,7 +198,11 @@ static int ili9xxx_write(const struct device *dev, const u16_t x,
 
 	LOG_DBG("Writing %dx%d (w,h) @ %dx%d (x,y)", desc->width, desc->height,
 			x, y);
-	ili9xxx_set_mem_area(data, x, y, desc->width, desc->height);
+	rv = ili9xxx_set_mem_area(data, x, y, desc->width, desc->height);
+	if (rv) {
+		LOG_ERR("Failed to set mem area %d", rv);
+		return rv;
+	}
 
 	if (desc->pitch > desc->width) {
 		write_h = 1U;
@@ -180,9 +212,14 @@ static int ili9xxx_write(const struct device *dev, const u16_t x,
 		nbr_of_writes = 1U;
 	}
 
-	ili9xxx_transmit(data, ILI9XXX_CMD_MEM_WRITE,
+	rv = ili9xxx_transmit(data, ILI9XXX_CMD_MEM_WRITE,
 			 (void *) write_data_start,
 			 desc->width * pix_size * write_h);
+
+	if (rv) {
+		LOG_ERR("Failed to write memory %d", rv);
+		return rv;
+	}
 
 	tx_bufs.buffers = &tx_buf;
 	tx_bufs.count = 1;
@@ -278,14 +315,46 @@ static int ili9xxx_set_pixel_format(const struct device *dev,
 static int ili9xxx_set_orientation(const struct device *dev,
 				   const enum display_orientation orientation)
 {
+	static const int madc[] = DT_INST_0_ILITEK_ILI9XXX_MEM_ACCESS_CTRL;
 	struct ili9xxx_data *data = (struct ili9xxx_data *)dev->driver_data;
+	const bool square = data->width == data->height;
+	const int diff = abs(data->orientation - orientation);
+	u8_t cmd;
+	int rv;
 
 	LOG_DBG("change request %d -> %d", data->orientation, orientation);
+	if (!square && (diff != 2)) {
+		LOG_ERR("Unsupported landscape to portrait change");
+		return -ENOTSUP;
+	}
 	if (data->orientation == orientation) {
 		return 0;
 	}
-	LOG_ERR("Changing display orientation not implemented");
-	return -ENOTSUP;
+	switch (orientation) {
+	case DISPLAY_ORIENTATION_NORMAL:
+		cmd = 0;
+		break;
+	case DISPLAY_ORIENTATION_ROTATED_90:
+		cmd = ILI9XXX_DATA_MEM_ACCESS_CTRL_MV
+		    | ILI9XXX_DATA_MEM_ACCESS_CTRL_MY;
+		break;
+	case DISPLAY_ORIENTATION_ROTATED_180:
+		cmd = ILI9XXX_DATA_MEM_ACCESS_CTRL_MX
+		    | ILI9XXX_DATA_MEM_ACCESS_CTRL_MY;
+		break;
+	case DISPLAY_ORIENTATION_ROTATED_270:
+		cmd = ILI9XXX_DATA_MEM_ACCESS_CTRL_MV
+		    | ILI9XXX_DATA_MEM_ACCESS_CTRL_MX;
+		break;
+	default:
+		return -EINVAL;
+	}
+	if (sizeof(madc))
+		cmd |= madc[0] & 0x1F;
+	rv = ili9xxx_transmit(data, ILI9XXX_CMD_MEM_ACCESS_CTRL, &cmd, sizeof(cmd));
+	if (!rv)
+		data->orientation = orientation;
+	return rv;
 }
 
 static void ili9xxx_get_capabilities(const struct device *dev,
@@ -334,7 +403,8 @@ static int ili9xxx_init(struct device *dev)
 	data->x_offset = DT_X_OFFSET;
 	data->y_offset = DT_Y_OFFSET;
 
-	data->orientation = DISPLAY_ORIENTATION_NORMAL;
+	/* invalidate */
+	data->orientation = ~0;
 
 	data->spi_dev = device_get_binding(DT_INST_0_ILITEK_ILI9XXX_BUS_NAME);
 	if (data->spi_dev == NULL) {
@@ -393,6 +463,11 @@ static int ili9xxx_init(struct device *dev)
 
 	if (ili9xxx_set_pixel_format(dev, DT_PIX_FORMAT)) {
 		LOG_ERR("Pixel format '%s' is unsupported", DT_PIX_FORMAT_STR);
+		return -EINVAL;
+	}
+
+	if (ili9xxx_set_orientation(dev, DISPLAY_ORIENTATION_NORMAL)) {
+		LOG_ERR("Failed to set normal orientation");
 		return -EINVAL;
 	}
 
