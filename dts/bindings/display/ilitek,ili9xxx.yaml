@@ -8,6 +8,14 @@ compatible: "ilitek,ili9xxx"
 include: spi-device.yaml
 
 properties:
+    type:
+      type: string
+      required: true
+      description: controller type
+      enum:
+        - "ili9163"
+        - "ili934x"
+
     reset-gpios:
       type: phandle-array
       required: false

@@ -17,8 +17,6 @@ LOG_MODULE_REGISTER(display_ili9xxx, CONFIG_DISPLAY_LOG_LEVEL);
 #include <string.h>
 #include <stdlib.h>
 
-#define ILI9XXX_X_MAX 240U
-#define ILI9XXX_Y_MAX 320U
 #define ILI9XXX_PIX_FMT_MASK \
 	(PIXEL_FORMAT_RGB_888 | PIXEL_FORMAT_RGB_565 | PIXEL_FORMAT_BGR_565)
 
@@ -31,6 +29,8 @@ LOG_MODULE_REGISTER(display_ili9xxx, CONFIG_DISPLAY_LOG_LEVEL);
 #define DT_RESET_PIN      DT_INST_0_ILITEK_ILI9XXX_RESET_GPIOS_PIN
 #define DT_RESET_FLAGS    DT_INST_0_ILITEK_ILI9XXX_RESET_GPIOS_FLAGS
 
+#define DT_TYPE           DT_INST_0_ILITEK_ILI9XXX_TYPE_ENUM
+#define DT_TYPE_NAME      DT_INST_0_ILITEK_ILI9XXX_TYPE
 #define DT_PIX_FORMAT     (1 << DT_INST_0_ILITEK_ILI9XXX_PIXEL_FORMAT_ENUM)
 #define DT_PIX_FORMAT_STR DT_INST_0_ILITEK_ILI9XXX_PIXEL_FORMAT
 #define DT_HEIGHT         DT_INST_0_ILITEK_ILI9XXX_HEIGHT
@@ -40,22 +40,6 @@ LOG_MODULE_REGISTER(display_ili9xxx, CONFIG_DISPLAY_LOG_LEVEL);
 
 #define RESET_FLAGS (GPIO_OUTPUT_INACTIVE | DT_RESET_FLAGS)
 #define CMD_DATA_FLAGS (GPIO_OUTPUT_ACTIVE | DT_CMD_DATA_FLAGS)
-
-#if (DT_HEIGHT > ILI9XXX_Y_MAX) && (DT_HEIGHT > ILI9XXX_X_MAX)
-#error "Please check height of \"ilitek,ili9xxx"\" device"
-#endif
-
-#if (DT_WIDTH > ILI9XXX_X_MAX) && (DT_WIDTH > ILI9XXX_Y_MAX)
-#error "Please check width of \"ilitek,ili9xxx\" device"
-#endif
-
-#if (DT_X_OFFSET > (ILI9XXX_X_MAX - RES_X_MAX))
-#error "Please check x-offset of \"ilitek,ili9xxx\" device"
-#endif
-
-#if (DT_Y_OFFSET > (ILI9XXX_Y_MAX - RES_Y_MAX))
-#error "Please check y-offset of \"ilitek,ili9xxx\" device"
-#endif
 
 #if (ILI9XXX_PIX_FMT_MASK & DT_PIX_FORMAT == 0)
 #error "Please check pixel-format of \"ilitek,ili9xxx\" device"
@@ -75,6 +59,20 @@ LOG_MODULE_REGISTER(display_ili9xxx, CONFIG_DISPLAY_LOG_LEVEL);
 		return _rv; \
 }
 
+typedef struct {
+	const u16_t x_max;
+	const u16_t y_max;
+} Cfg_t;
+
+static const Cfg_t s_cfg[] = {
+		[0] = { 132U, 162U },
+		[1] = { 240U, 320U },
+};
+
+#if (DT_TYPE > 1) /* sizeof (s_cfg)/sizeof(*s_cfg) */
+#error "Please check type \"" ##DT_TYPE_NAME "\""
+#endif
+
 struct ili9xxx_data {
 #ifdef DT_INST_0_ILITEK_ILI9XXX_RESET_GPIOS_CONTROLLER
 	struct device *rst;
@@ -87,6 +85,7 @@ struct ili9xxx_data {
 #endif
 	enum display_pixel_format pixel_format;
 	enum display_orientation orientation;
+	const Cfg_t *cfg;
 	u16_t height;
 	u16_t width;
 	u16_t x_offset;
@@ -138,6 +137,8 @@ static void ili9xxx_exit_sleep(struct ili9xxx_data *data)
 static int ili9xxx_set_mem_area(struct ili9xxx_data *data, const u16_t x,
 				 const u16_t y, const u16_t w, const u16_t h)
 {
+	const u16_t x_max = data->cfg->x_max;
+	const u16_t y_max = data->cfg->y_max;
 	u16_t sx;
 	u16_t sy;
 	u16_t spi_data[2];
@@ -149,16 +150,16 @@ static int ili9xxx_set_mem_area(struct ili9xxx_data *data, const u16_t x,
 		sy = y + data->y_offset;
 		break;
 	case DISPLAY_ORIENTATION_ROTATED_90:
-		sx = ILI9XXX_Y_MAX - (data->width + data->y_offset) + x;
+		sx = y_max - (data->width + data->y_offset) + x;
 		sy = y + data->x_offset;
 		break;
 	case DISPLAY_ORIENTATION_ROTATED_180:
-		sx = ILI9XXX_X_MAX - (data->width + data->x_offset) + x;
-		sy = ILI9XXX_Y_MAX - (data->height + data->y_offset) + y;
+		sx = x_max - (data->width + data->x_offset) + x;
+		sy = y_max - (data->height + data->y_offset) + y;
 		break;
 	case DISPLAY_ORIENTATION_ROTATED_270:
 		sx = x + data->y_offset;
-		sy = ILI9XXX_X_MAX - (data->height + data->x_offset) + y;
+		sy = x_max - (data->height + data->x_offset) + y;
 		break;
 	default:
 		return -EINVAL;
@@ -398,6 +399,7 @@ static int ili9xxx_init(struct device *dev)
 
 	LOG_DBG("Initializing display driver");
 
+	data->cfg = s_cfg + DT_TYPE;
 	data->height = DT_HEIGHT;
 	data->width = DT_WIDTH;
 	data->x_offset = DT_X_OFFSET;
@@ -405,6 +407,28 @@ static int ili9xxx_init(struct device *dev)
 
 	/* invalidate */
 	data->orientation = ~0;
+
+	if (DT_HEIGHT > data->cfg->y_max) {
+		LOG_ERR("Height %d > %d of '%s'",
+				DT_HEIGHT, data->cfg->y_max, DT_TYPE_NAME);
+		return -EINVAL;
+	}
+	if (DT_WIDTH > data->cfg->x_max) {
+		LOG_ERR("Width %d > %d of '%s'",
+				DT_WIDTH, data->cfg->x_max, DT_TYPE_NAME);
+		return -EINVAL;
+	}
+
+	if (DT_Y_OFFSET > (data->cfg->y_max - data->height)) {
+		LOG_ERR("y-offset %d > %d of '%s'", DT_Y_OFFSET,
+				(data->cfg->y_max - data->height), DT_TYPE_NAME);
+		return -EINVAL;
+	}
+	if (DT_X_OFFSET > (data->cfg->x_max - data->width)) {
+		LOG_ERR("x-offset %d > %d of '%s'", DT_X_OFFSET,
+				(data->cfg->x_max - data->width), DT_TYPE_NAME);
+		return -EINVAL;
+	}
 
 	data->spi_dev = device_get_binding(DT_INST_0_ILITEK_ILI9XXX_BUS_NAME);
 	if (data->spi_dev == NULL) {
