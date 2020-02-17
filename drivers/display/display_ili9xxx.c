@@ -63,9 +63,16 @@ LOG_MODULE_REGISTER(display_ili9xxx, CONFIG_DISPLAY_LOG_LEVEL);
 #define WRITE_CMD(cmd) ({ \
 	u8_t _cmd = ILI9XXX_CMD_##cmd; \
 	u8_t _arr[] = DT_INST_0_ILITEK_ILI9XXX_##cmd; \
+	int _rv = 0; \
 	if (sizeof(_arr)) \
-		ili9xxx_transmit(data, _cmd, _arr, sizeof(_arr)); \
+		_rv = ili9xxx_transmit(data, _cmd, _arr, sizeof(_arr)); \
+	_rv; \
 })
+#define RET_IF(cmd) { \
+	int _rv = cmd; \
+	if (_rv) \
+		return _rv; \
+}
 
 struct ili9xxx_data {
 #ifdef DT_INST_0_ILITEK_ILI9XXX_RESET_GPIOS_CONTROLLER
@@ -85,21 +92,25 @@ struct ili9xxx_data {
 	u16_t y_offset;
 };
 
-static void ili9xxx_transmit(struct ili9xxx_data *data, u8_t cmd, void *tx_data,
+static int ili9xxx_transmit(struct ili9xxx_data *data, u8_t cmd, void *tx_data,
 		      size_t tx_len)
 {
 	struct spi_buf tx_buf = { .buf = &cmd, .len = 1 };
 	struct spi_buf_set tx_bufs = { .buffers = &tx_buf, .count = 1 };
+	int rv;
 
 	gpio_pin_set(data->cmd, DT_CMD_DATA_PIN, 1);
-	spi_write(data->spi_dev, &data->spi_config, &tx_bufs);
+	rv = spi_write(data->spi_dev, &data->spi_config, &tx_bufs);
+	if (rv)
+		return rv;
 
-	if (tx_data != NULL) {
-		tx_buf.buf = tx_data;
-		tx_buf.len = tx_len;
-		gpio_pin_set(data->cmd, DT_CMD_DATA_PIN, 0);
-		spi_write(data->spi_dev, &data->spi_config, &tx_bufs);
-	}
+	if (!tx_data)
+		return 0;
+
+	tx_buf.buf = tx_data;
+	tx_buf.len = tx_len;
+	gpio_pin_set(data->cmd, DT_CMD_DATA_PIN, 0);
+	return spi_write(data->spi_dev, &data->spi_config, &tx_bufs);
 }
 
 static void ili9xxx_reset(struct ili9xxx_data *data)
@@ -207,8 +218,7 @@ static int ili9xxx_blanking_off(const struct device *dev)
 	struct ili9xxx_data *data = (struct ili9xxx_data *)dev->driver_data;
 
 	LOG_DBG("Turning display blanking off");
-	ili9xxx_transmit(data, ILI9XXX_CMD_DISPLAY_ON, NULL, 0);
-	return 0;
+	return ili9xxx_transmit(data, ILI9XXX_CMD_DISPLAY_ON, NULL, 0);
 }
 
 static int ili9xxx_blanking_on(const struct device *dev)
@@ -216,8 +226,7 @@ static int ili9xxx_blanking_on(const struct device *dev)
 	struct ili9xxx_data *data = (struct ili9xxx_data *)dev->driver_data;
 
 	LOG_DBG("Turning display blanking on");
-	ili9xxx_transmit(data, ILI9XXX_CMD_DISPLAY_OFF, NULL, 0);
-	return 0;
+	return ili9xxx_transmit(data, ILI9XXX_CMD_DISPLAY_OFF, NULL, 0);
 }
 
 static int ili9xxx_set_brightness(const struct device *dev,
@@ -239,6 +248,7 @@ static int ili9xxx_set_pixel_format(const struct device *dev,
 {
 	struct ili9xxx_data *data = (struct ili9xxx_data *)dev->driver_data;
 	u8_t arg;
+	int rv;
 
 	LOG_DBG("change request %d -> %d", data->pixel_format, pixel_format);
 	if (data->pixel_format == pixel_format) {
@@ -259,9 +269,10 @@ static int ili9xxx_set_pixel_format(const struct device *dev,
 		return -ENOTSUP;
 	}
 
-	ili9xxx_transmit(data, ILI9XXX_CMD_PIXEL_FORMAT_SET, &arg, 1);
-	data->pixel_format = pixel_format;
-	return 0;
+	rv = ili9xxx_transmit(data, ILI9XXX_CMD_PIXEL_FORMAT_SET, &arg, 1);
+	if (!rv)
+		data->pixel_format = pixel_format;
+	return rv;
 }
 
 static int ili9xxx_set_orientation(const struct device *dev,
@@ -292,23 +303,23 @@ static void ili9xxx_get_capabilities(const struct device *dev,
 
 static int ili9xxx_lcd_init(struct ili9xxx_data *data)
 {
-	WRITE_CMD(POWER_CTRL_A);
-	WRITE_CMD(POWER_CTRL_B);
-	WRITE_CMD(POWER_ON_SEQ_CTRL);
-	WRITE_CMD(DRVR_TIMING_CTRL_A_I);
-	WRITE_CMD(PUMP_RATIO_CTRL);
-	WRITE_CMD(DRVR_TIMING_CTRL_B);
-	WRITE_CMD(POWER_CTRL_1);
-	WRITE_CMD(POWER_CTRL_2);
-	WRITE_CMD(VCOM_CTRL_1);
-	WRITE_CMD(VCOM_CTRL_2);
-	WRITE_CMD(MEM_ACCESS_CTRL);
-	WRITE_CMD(FRAME_CTRL_NORMAL_MODE);
-	WRITE_CMD(DISPLAY_FUNCTION_CTRL);
-	WRITE_CMD(ENABLE_3G);
-	WRITE_CMD(GAMMA_SET);
-	WRITE_CMD(POSITIVE_GAMMA_CORRECTION);
-	WRITE_CMD(NEGATIVE_GAMMA_CORRECTION);
+	RET_IF(WRITE_CMD(POWER_CTRL_A));
+	RET_IF(WRITE_CMD(POWER_CTRL_B));
+	RET_IF(WRITE_CMD(POWER_ON_SEQ_CTRL));
+	RET_IF(WRITE_CMD(DRVR_TIMING_CTRL_A_I));
+	RET_IF(WRITE_CMD(PUMP_RATIO_CTRL));
+	RET_IF(WRITE_CMD(DRVR_TIMING_CTRL_B));
+	RET_IF(WRITE_CMD(POWER_CTRL_1));
+	RET_IF(WRITE_CMD(POWER_CTRL_2));
+	RET_IF(WRITE_CMD(VCOM_CTRL_1));
+	RET_IF(WRITE_CMD(VCOM_CTRL_2));
+	RET_IF(WRITE_CMD(MEM_ACCESS_CTRL));
+	RET_IF(WRITE_CMD(FRAME_CTRL_NORMAL_MODE));
+	RET_IF(WRITE_CMD(DISPLAY_FUNCTION_CTRL));
+	RET_IF(WRITE_CMD(ENABLE_3G));
+	RET_IF(WRITE_CMD(GAMMA_SET));
+	RET_IF(WRITE_CMD(POSITIVE_GAMMA_CORRECTION));
+	RET_IF(WRITE_CMD(NEGATIVE_GAMMA_CORRECTION));
 	return 0;
 }
 
