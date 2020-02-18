@@ -406,7 +406,7 @@ static int ili9xxx_init(struct device *dev)
 	data->y_offset = DT_Y_OFFSET;
 
 	/* invalidate */
-	data->orientation = ~0;
+	data->orientation = DISPLAY_ORIENTATION_ROTATED_180;
 
 	if (DT_HEIGHT > data->cfg->y_max) {
 		LOG_ERR("Height %d > %d of '%s'",

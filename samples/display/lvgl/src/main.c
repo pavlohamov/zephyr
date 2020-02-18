@@ -11,9 +11,8 @@
 #include <string.h>
 #include <zephyr.h>
 
-#define LOG_LEVEL CONFIG_LOG_DEFAULT_LEVEL
 #include <logging/log.h>
-LOG_MODULE_REGISTER(app);
+LOG_MODULE_REGISTER(app, CONFIG_LOG_DEFAULT_LEVEL);
 
 void main(void)
 {
@@ -30,7 +29,7 @@ void main(void)
 		return;
 	}
 
-	if (IS_ENABLED(CONFIG_LVGL_POINTER_KSCAN)) {
+	if (1 || IS_ENABLED(CONFIG_LVGL_POINTER_KSCAN)) {
 		lv_obj_t *hello_world_button;
 
 		hello_world_button = lv_btn_create(lv_scr_act(), NULL);
@@ -50,10 +49,19 @@ void main(void)
 	lv_task_handler();
 	display_blanking_off(display_dev);
 
+	int ori = 0;
+	static const char *orstr[] = {
+			"0", "90", "180", "270"
+	};
 	while (1) {
 		if ((count % 100) == 0U) {
 			sprintf(count_str, "%d", count/100U);
 			lv_label_set_text(count_label, count_str);
+			printk("\n");
+			display_set_orientation(display_dev, ori);
+			lv_label_set_text(hello_world_label, orstr[ori]);
+			ori = (ori + 1) % 4;
+			lv_obj_invalidate(lv_scr_act());
 		}
 		lv_task_handler();
 		k_sleep(K_MSEC(10));
