@@ -104,7 +104,16 @@ static int32_t configure_simplelink(void)
 #endif
 
 	/* Turn on NWP */
+	LOG_WRN("SL stop");
+    sl_Stop(SL_STOP_TIMEOUT);
+    LOG_WRN("SL start");
 	mode = sl_Start(0, 0, 0);
+	LOG_WRN("SL dne");
+	if (mode < 0) {
+        LOG_ERR("OMG");
+        sl_Stop(SL_STOP_TIMEOUT);
+	    mode = sl_Start(0, 0, 0);
+	}
 	ASSERT_ON_ERROR(mode, DEVICE_ERROR);
 
 	if (mode != ROLE_STA) {
@@ -244,12 +253,15 @@ static int32_t configure_simplelink(void)
 	retval = sl_WlanSetMode(ROLE_STA);
 	ASSERT_ON_ERROR(retval, WLAN_ERROR);
 
+    LOG_ERR("SL stop");
 	/* For changes to take affect, we restart the NWP */
 	retval = sl_Stop(0xFF);
 	ASSERT_ON_ERROR(retval, DEVICE_ERROR);
 
+    LOG_ERR("SL start");
 	mode = sl_Start(0, 0, 0);
 	ASSERT_ON_ERROR(mode, DEVICE_ERROR);
+    LOG_ERR("SL done");
 
 	if (mode != ROLE_STA) {
 		LOG_ERR("Failed to configure device to it's default state");
@@ -641,6 +653,8 @@ int z_simplelink_connect(struct wifi_connect_req_params *params)
 	SlWlanSecParams_t secParams = { 0 };
 	long lretval;
 
+	z_simplelink_ap_stop();
+
 	if (params->security == WIFI_SECURITY_TYPE_PSK) {
 		secParams.Key = (signed char *)params->psk;
 		secParams.KeyLen = params->psk_length;
@@ -667,6 +681,147 @@ int z_simplelink_disconnect(void)
 	LOG_DBG("sl_WlanDisconnect: %ld", lretval);
 
 	return lretval;
+}
+
+static uint32_t strAddr2sl(const char *str)
+{
+    struct in_addr addr4;
+
+    if (net_addr_pton(AF_INET, str, &addr4) < 0) {
+        LOG_ERR("Invalid %s", log_strdup(str));
+        return -1;
+    }
+    return (_u32)SL_IPV4_VAL(addr4.s4_addr[0],
+                addr4.s4_addr[1],
+                addr4.s4_addr[2],
+                addr4.s4_addr[3]);
+}
+
+int z_simplelink_ap(struct wifi_connect_req_params *cfg)
+{
+    uint8_t sec = cfg->security == WIFI_SECURITY_TYPE_NONE ?
+            0 : SL_WLAN_SEC_TYPE_WPA_WPA2;
+    int rv = sl_WlanSet(SL_WLAN_CFG_AP_ID, SL_WLAN_AP_OPT_SSID,
+            cfg->ssid_length, cfg->ssid);
+
+    if (rv < 0) {
+        LOG_ERR("Failed to set ssid");
+        return -EINVAL;
+    }
+
+    rv = sl_WlanSet(SL_WLAN_CFG_AP_ID, SL_WLAN_AP_OPT_SECURITY_TYPE, 1, &sec);
+    if (rv < 0) {
+        LOG_ERR("Failed to set security");
+        return -EINVAL;
+    }
+
+    if (sec) {
+        rv = sl_WlanSet(SL_WLAN_CFG_AP_ID, SL_WLAN_AP_OPT_PASSWORD,
+                cfg->psk_length, cfg->psk);
+        if (rv < 0) {
+            LOG_ERR("Failed to set PSK");
+            return -EINVAL;
+        }
+    }
+
+    LOG_ERR("start %d, %d", sec, cfg->psk_length);
+
+    rv = sl_WlanSet(SL_WLAN_CFG_AP_ID, SL_WLAN_AP_OPT_CHANNEL,
+            sizeof(cfg->channel), &cfg->channel);
+    if (rv < 0) {
+        LOG_ERR("Failed to set channel");
+        return -EINVAL;
+    }
+
+    rv = sl_WlanSet(SL_WLAN_CFG_GENERAL_PARAM_ID,
+            SL_WLAN_GENERAL_PARAM_OPT_COUNTRY_CODE, 2,
+            CONFIG_WIFI_SIMPLELINK_AP_COUNTRY_CODE);
+    if (rv < 0) {
+        LOG_ERR("Failed to set country code");
+        return -EINVAL;
+    }
+
+    SlNetCfgIpV4Args_t ipV4 = {
+        .Ip = strAddr2sl(CONFIG_WIFI_SIMPLELINK_AP_IP_ADDR),
+        .IpMask = strAddr2sl(CONFIG_WIFI_SIMPLELINK_AP_IP_NETMASK),
+        .IpGateway = strAddr2sl(CONFIG_WIFI_SIMPLELINK_AP_IP_GW),
+        .IpDnsServer = strAddr2sl(CONFIG_WIFI_SIMPLELINK_AP_IP_ADDR),
+    };
+
+    rv = sl_NetCfgSet(SL_NETCFG_IPV4_AP_ADDR_MODE, SL_NETCFG_ADDR_STATIC,
+            sizeof(ipV4), (_u8*)&ipV4);
+    if (rv < 0) {
+        LOG_ERR("Failed to set IP settings");
+        return -EINVAL;
+    }
+
+    sl_WlanDisconnect();
+    sl_NetAppStop(SL_NETAPP_DHCP_SERVER_ID);
+
+    rv = sl_WlanSetMode(ROLE_AP);
+    if (rv < 0) {
+        LOG_ERR("Failed to change role");
+        return -EIO;
+    }
+
+    sl_Stop(SL_STOP_TIMEOUT);
+    int role = sl_Start(0, 0, 0);
+
+    if (role < 0) {
+        LOG_ERR("Failed to start");
+        return -EIO;
+    }
+#ifdef CONFIG_WIFI_SIMPLELINK_AP_DHCP
+    SlNetAppDhcpServerBasicOpt_t dhcpParams = {
+        .lease_time      = CONFIG_WIFI_SIMPLELINK_AP_DHCP_LEASE_TIME,
+        .ipv4_addr_start =  strAddr2sl(CONFIG_WIFI_SIMPLELINK_AP_DHCP_BEGIN),
+        .ipv4_addr_last  =  strAddr2sl(CONFIG_WIFI_SIMPLELINK_AP_DHCP_END),
+    };
+
+    rv = sl_NetAppSet(SL_NETAPP_DHCP_SERVER_ID, SL_NETAPP_DHCP_SRV_BASIC_OPT,
+            sizeof(dhcpParams), (_u8*)&dhcpParams);
+    if (rv < 0) {
+        LOG_ERR("Failed to set DHCP settings");
+        return -EINVAL;
+    }
+
+    rv = sl_NetAppStart(SL_NETAPP_DHCP_SERVER_ID);
+    if (rv < 0) {
+        LOG_ERR("Failed to start DHCP");
+        return -EIO;
+    }
+#endif
+
+    nwp.role = role;
+    if (role != ROLE_AP) {
+        LOG_ERR("Failed to start AP");
+        return -1;
+    }
+
+    return 0;
+}
+
+int z_simplelink_ap_stop(void)
+{
+    if (nwp.role != ROLE_AP)
+        return 0;
+
+    int rv = sl_WlanSetMode(ROLE_STA);
+
+    if (rv < 0) {
+        LOG_ERR("Failed to change role");
+        return -EIO;
+    }
+
+    sl_Stop(SL_STOP_TIMEOUT);
+    rv = sl_Start(0, 0, 0);
+    if (rv < 0) {
+        LOG_ERR("Failed to start");
+        return -EIO;
+    }
+    nwp.role = rv;
+
+    return 0;
 }
 
 int z_simplelink_init(simplelink_wifi_cb_t wifi_cb)
