@@ -24,6 +24,11 @@ LOG_MODULE_REGISTER(net_http, CONFIG_NET_HTTP_LOG_LEVEL);
 #include <net/socket.h>
 #include <net/http_client.h>
 
+#ifdef CONFIG_POSIX_API
+#include <posix/sys/socket.h>
+#include <unistd.h>
+#endif
+
 #include "net_private.h"
 
 #define HTTP_CONTENT_LEN_SIZE 6
