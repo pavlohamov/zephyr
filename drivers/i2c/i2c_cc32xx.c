@@ -364,6 +364,15 @@ static int i2c_cc32xx_init(const struct device *dev)
 	/* Clear any pending interrupts */
 	MAP_I2CMasterIntClear(base);
 
+	MAP_I2CMasterGlitchFilterConfigSet(base, I2C_MASTER_GLITCH_FILTER_32);
+	MAP_I2CSlaveACKOverride(base, 0);
+	MAP_I2CSlaveInit(base, 0x7E);
+	MAP_I2CSlaveAddressSet(base, 0x1, 0x7F);
+	MAP_I2CSlaveFIFODisable(base);
+	MAP_I2CSlaveDisable(base);
+	MAP_I2CSlaveFIFODisable(base);
+	MAP_I2CSlaveDisable(base);
+
 	/* Enable the I2C Master for operation */
 	MAP_I2CMasterEnable(base);
 
